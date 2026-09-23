@@ -14,13 +14,16 @@ import tempfile
 TARGET = Path('/etc/caddy/Caddyfile')
 BACKUP = Path('/etc/caddy/Caddyfile.pre-t3code')
 EXPECTED_SHA256 = '89e33a955871fe4d8dd621303193b81241d7099b6c02aeb6803e97cfcb7a3bf1'
+# The first applied T3 route had a malformed /codex redirect; allow this exact
+# reviewed intermediate file to be upgraded without replacing the backup.
+INITIAL_T3_SHA256 = '2631a46ed1ea016e420b48d75ea4090f15bbdd0ef2fd7b8c767f7daef64c929e'
 OLD_START = b'\t# BEGIN codex-web\n'
 OLD_END = b'\t# END codex-web\n'
 OLD_FALLBACK = b'\thandle {\n\t\trespond "Not found" 404\n\t}\n'
 NEW_BLOCK = b'''\t# BEGIN t3code
 \t@retired_codex path /codex /codex/*
 \thandle @retired_codex {
-\t\tredir / 308
+\t\tredir * / 308
 \t}
 \t# END t3code
 '''
@@ -63,6 +66,16 @@ def proposed(original: bytes) -> bytes:
     )
 
 
+def reviewed_target(current: bytes) -> bytes:
+    if digest(current) == EXPECTED_SHA256:
+        return proposed(current)
+    if BACKUP.exists() and digest(BACKUP.read_bytes()) == EXPECTED_SHA256:
+        final = proposed(BACKUP.read_bytes())
+        if digest(current) in (INITIAL_T3_SHA256, digest(final)):
+            return final
+    raise SystemExit('Caddyfile differs from the reviewed versions; stopped.')
+
+
 def validate(data: bytes) -> None:
     with tempfile.TemporaryDirectory(prefix='t3code-caddy-', dir='/run' if os.geteuid() == 0 else None) as temporary:
         staged = Path(temporary) / 'Caddyfile'
@@ -96,13 +109,13 @@ def main() -> None:
     if TARGET.is_symlink():
         raise SystemExit('Refusing a symlink Caddyfile.')
     if action == 'check':
-        next_config = proposed(TARGET.read_bytes())
+        next_config = reviewed_target(TARGET.read_bytes())
         validate(next_config)
         print('Reviewed T3 Code Caddy configuration is valid.')
         return
     if action == 'diff':
         original = TARGET.read_bytes()
-        next_config = proposed(original)
+        next_config = reviewed_target(original)
         print(''.join(difflib.unified_diff(
             original.decode().splitlines(keepends=True),
             next_config.decode().splitlines(keepends=True),
@@ -118,19 +131,15 @@ def main() -> None:
         current = TARGET.read_bytes()
         save_backup = False
         if action == 'apply':
+            next_config = reviewed_target(current)
             if digest(current) == EXPECTED_SHA256:
-                next_config = proposed(current)
                 if BACKUP.exists():
                     raise SystemExit('Backup already exists; stopped before overwriting it.')
                 save_backup = True
-            elif BACKUP.exists() and digest(current) == digest(proposed(BACKUP.read_bytes())):
-                next_config = current
-            else:
-                raise SystemExit('Caddyfile differs from the reviewed versions; stopped.')
         else:
             if not BACKUP.exists() or digest(BACKUP.read_bytes()) != EXPECTED_SHA256:
                 raise SystemExit('Reviewed backup is missing or changed; stopped.')
-            if digest(current) != digest(proposed(BACKUP.read_bytes())):
+            if digest(current) not in (INITIAL_T3_SHA256, digest(proposed(BACKUP.read_bytes()))):
                 raise SystemExit('Live Caddyfile differs from the reviewed T3 version; stopped.')
             next_config = BACKUP.read_bytes()
         validate(next_config)

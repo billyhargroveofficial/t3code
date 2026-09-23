@@ -40,6 +40,8 @@ validates the proposed replacement. Its `apply` and `rollback` actions require
 sudo. `apply` saves `/etc/caddy/Caddyfile.pre-t3code`, writes atomically and
 reloads Caddy; if reload fails it restores the previous file. The expected
 change can be printed with `apply-caddy.py diff`.
+The same command upgrades the exact first T3 configuration if `/codex` still
+returns an empty `200`; that version had a redirect matcher typo.
 
 ```sh
 python3 deploy/apply-caddy.py check
