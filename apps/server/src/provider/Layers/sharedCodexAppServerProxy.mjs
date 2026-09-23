@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 
-import process from "node:process";
-import readline from "node:readline";
-import net from "node:net";
+import * as NodeProcess from "node:process";
+import * as NodeReadline from "node:readline";
+import * as NodeNet from "node:net";
 import { WebSocket } from "ws";
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import { integerSetting, retryPolicy } from "./sharedCodexRetryPolicy.mjs";
 
 function fail(message, exitCode = 64) {
-  process.stderr.write(`codex-app-server-proxy: ${message}\n`);
-  process.exit(exitCode);
+  NodeProcess.stderr.write(`codex-app-server-proxy: ${message}\n`);
+  NodeProcess.exit(exitCode);
 }
 
 function configuredChoice(name, fallback, choices) {
-  const value = process.env[name]?.trim() || fallback;
+  const value = NodeProcess.env[name]?.trim() || fallback;
   if (!choices.includes(value)) {
     fail(`${name} must be one of: ${choices.join(", ")}`);
   }
@@ -35,7 +35,7 @@ function parseInvocation(argv) {
 }
 
 function appServerConnection() {
-  const configuredUrl = process.env.CODEX_APP_SERVER_URL?.trim();
+  const configuredUrl = NodeProcess.env.CODEX_APP_SERVER_URL?.trim();
   if (!configuredUrl) {
     fail("CODEX_APP_SERVER_URL must be set");
   }
@@ -47,7 +47,7 @@ function appServerConnection() {
     }
     return {
       options: {
-        createConnection: () => net.createConnection(socketPath),
+        createConnection: () => NodeNet.createConnection(socketPath),
       },
       url: "ws://localhost/rpc",
     };
@@ -66,14 +66,14 @@ function appServerConnection() {
   return { options: {}, url: configuredUrl };
 }
 
-parseInvocation(process.argv.slice(2));
+parseInvocation(NodeProcess.argv.slice(2));
 const connection = appServerConnection();
 let policy, maxPayload, handshakeTimeout, resumeTimeout;
 try {
-  policy = retryPolicy(process.env, (message) => log(message));
-  maxPayload = integerSetting(process.env, "MAX_PAYLOAD", 100 * 1024 * 1024, 1);
-  handshakeTimeout = integerSetting(process.env, "HANDSHAKE_TIMEOUT_MS", 10_000, 1);
-  resumeTimeout = integerSetting(process.env, "RESUME_TIMEOUT_MS", 30_000, 1);
+  policy = retryPolicy(NodeProcess.env, (message) => log(message));
+  maxPayload = integerSetting(NodeProcess.env, "MAX_PAYLOAD", 100 * 1024 * 1024, 1);
+  handshakeTimeout = integerSetting(NodeProcess.env, "HANDSHAKE_TIMEOUT_MS", 10_000, 1);
+  resumeTimeout = integerSetting(NodeProcess.env, "RESUME_TIMEOUT_MS", 30_000, 1);
 } catch (error) {
   fail(error.message);
 }
@@ -87,7 +87,7 @@ const serverRequests = new Set();
 const threads = new Map();
 const resumeErrors = new Map();
 const internalRequests = new Map();
-const internalPrefix = `t3-shared-codex:${randomUUID()}:`;
+const internalPrefix = `t3-shared-codex:${NodeCrypto.randomUUID()}:`;
 let sequence = 0;
 let initializeRequest = null;
 let initializedOnce = false;
@@ -101,10 +101,10 @@ let socket = null;
 let startInitialize = null;
 
 function log(message) {
-  process.stderr.write(`codex-app-server-proxy: ${message}\n`);
+  NodeProcess.stderr.write(`codex-app-server-proxy: ${message}\n`);
 }
 function output(message) {
-  process.stdout.write(`${typeof message === "string" ? message : JSON.stringify(message)}\n`);
+  NodeProcess.stdout.write(`${typeof message === "string" ? message : JSON.stringify(message)}\n`);
 }
 function parse(message) {
   try {
@@ -131,9 +131,9 @@ function stop(exitCode = 0) {
   for (const pending of internalRequests.values()) pending.reject(new Error("proxy stopped"));
   internalRequests.clear();
   input.close();
-  process.stdin.pause();
+  NodeProcess.stdin.pause();
   socket?.terminate();
-  process.exitCode = exitCode;
+  NodeProcess.default.exitCode = exitCode;
 }
 function scheduleReconnect(error) {
   if (stopping) return;
@@ -144,9 +144,9 @@ function scheduleReconnect(error) {
     for (const { parsed } of pendingMessages.splice(0))
       errorResponse(parsed, "App-server reconnect attempts exhausted.");
     if (failureAction === "terminate-parent") {
-      log(`terminating parent process ${process.ppid}`);
+      log(`terminating parent process ${NodeProcess.ppid}`);
       try {
-        process.kill(process.ppid, "SIGTERM");
+        NodeProcess.kill(NodeProcess.ppid, "SIGTERM");
       } catch (error) {
         log(`failed to terminate parent process: ${error.message}`);
       }
@@ -256,8 +256,8 @@ function receiveInput(raw) {
     errorResponse(parsed, "App-server is unavailable and its request queue is full.");
   }
 }
-const input = readline.createInterface({
-  input: process.stdin,
+const input = NodeReadline.createInterface({
+  input: NodeProcess.stdin,
   crlfDelay: Infinity,
   terminal: false,
 });
@@ -415,5 +415,5 @@ function connect() {
     scheduleReconnect(connectionError || new Error(`connection closed with code ${code}`));
   });
 }
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => stop());
+for (const signal of ["SIGINT", "SIGTERM"]) NodeProcess.default.on(signal, () => stop());
 connect();

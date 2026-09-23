@@ -36,6 +36,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
+import { autheliaProxyConfigFromEnv, verifyAutheliaProxyUser } from "./autheliaProxy.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -242,6 +243,37 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             yield* annotateEnvironmentRequest(args.endpoint.name);
             const request = yield* HttpServerRequest.HttpServerRequest;
             const result = yield* serverAuth.getSessionState(request);
+            if (!result.authenticated) {
+              const authelia = autheliaProxyConfigFromEnv();
+              if (authelia) {
+                const user = yield* Effect.promise(() =>
+                  verifyAutheliaProxyUser(request.headers, authelia),
+                );
+                if (user) {
+                  const issued = yield* sessions
+                    .issue({
+                      subject: `authelia:${user}`,
+                      method: "browser-session-cookie",
+                      scopes: AuthStandardClientScopes,
+                      client: { ...deriveAuthClientMetadata({ request }), label: user },
+                    })
+                    .pipe(
+                      Effect.catch((error) =>
+                        failEnvironmentInternal("browser_session_issuance_failed", error),
+                      ),
+                    );
+                  yield* appendSessionCookie(sessions.cookieName, issued.token, issued.expiresAt);
+                  yield* appendCredentialResponseHeaders;
+                  return {
+                    authenticated: true,
+                    auth: result.auth,
+                    scopes: issued.scopes,
+                    sessionMethod: issued.method,
+                    expiresAt: DateTime.toUtc(issued.expiresAt),
+                  };
+                }
+              }
+            }
             const credential = EnvironmentAuth.selectRequestCredential(
               request,
               sessions.cookieName,

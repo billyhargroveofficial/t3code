@@ -8,6 +8,10 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=/home/billy/t3code-shared
 Environment=T3CODE_CODEX_APP_SERVER_URL=unix:///home/billy/.codex/app-server-control/app-server-control.sock
+Environment=T3CODE_AUTHELIA_VERIFY_URL=http://127.0.0.1:9091/sso/api/authz/forward-auth
+Environment=T3CODE_AUTHELIA_PUBLIC_HOST=billyhargrove.ru
+Environment=T3CODE_AUTHELIA_COOKIE_NAME=billynotes_session
+Environment=T3CODE_AUTHELIA_USERS=billy,nikolay
 ExecStart=/usr/bin/node /home/billy/t3code-shared/apps/server/dist/bin.mjs serve --host 127.0.0.1 --port 8214 --base-dir /home/billy/.local/share/t3code-shared --no-browser
 Restart=always
 RestartSec=5

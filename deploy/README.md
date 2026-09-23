@@ -34,6 +34,13 @@ The service listens only on `127.0.0.1:8214`; Caddy publishes it at the root
 of `https://billyhargrove.ru/`. The root Caddy route uses Authelia, which
 allows only `billy` and `nikolay` for T3 Code. `/codex` redirects to `/`.
 Existing more-specific routes on the domain remain ahead of the T3 fallback.
+The service unit enables Authelia SSO. On the first `/api/auth/session` request,
+T3 verifies the forwarded username and the Authelia session cookie with the
+local forward-auth endpoint, then gives that browser its own T3 cookie. Both
+users see the **same T3 environment, projects, and threads**. Opening the
+domain after Authelia login is sufficient; there is no pairing step for these
+two accounts. Forged `Remote-User` headers without a valid Authelia cookie are
+rejected, including direct requests to the loopback port.
 
 `apply-caddy.py check` verifies the exact reviewed `/etc/caddy/Caddyfile` and
 validates the proposed replacement. Its `apply` and `rollback` actions require
@@ -49,9 +56,9 @@ python3 deploy/apply-caddy.py diff
 sudo /usr/bin/python3 /home/billy/t3code-shared/deploy/apply-caddy.py apply
 ```
 
-After the domain is live, each browser profile needs a T3 pairing link once,
-in addition to Authelia login. Issue short-lived, single-use links as `billy`
-from this checkout, then open each link in that person's browser. Keep the
+Manual T3 pairing remains available for deployments without Authelia SSO,
+but is unnecessary on `billyhargrove.ru`. If the SSO path is temporarily
+unavailable, issue a short-lived link as `billy` from this checkout. Keep the
 printed link private; it contains a bearer credential.
 
 ```sh
