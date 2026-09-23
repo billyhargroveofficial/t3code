@@ -78,6 +78,7 @@ export async function verifyAutheliaProxyUser(
     const response = await fetcher(config.verifyUrl, {
       method: "GET",
       headers: {
+        host: config.publicHost,
         cookie,
         "x-forwarded-host": config.publicHost,
         "x-forwarded-proto": "https",

@@ -63,6 +63,7 @@ describe("Authelia browser SSO", () => {
     const fetcher: typeof fetch = async (url, init) => {
       expect(url).toBe(config.verifyUrl);
       const forwarded = new Headers(init?.headers);
+      expect(forwarded.get("host")).toBe(config.publicHost);
       expect(forwarded.get("cookie")).toBe("billynotes_session=valid-opaque-value");
       expect(forwarded.get("x-forwarded-host")).toBe(config.publicHost);
       return new Response(null, { status: 200, headers: { "remote-user": "billy" } });
