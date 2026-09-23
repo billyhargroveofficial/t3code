@@ -283,6 +283,29 @@ function codexTurnId(metadata: unknown): string | null {
   return decoded.value.turn_id;
 }
 
+function importedUserTitle(text: string): string | undefined {
+  let visible = text.trim();
+  // Codex rollout files can begin with injected environment and project rules
+  // as separate user records. Those records remain in the imported transcript,
+  // but the sidebar title should describe the first actual request.
+  const leadingContext =
+    /^(?:<recommended_plugins>[\s\S]*?<\/recommended_plugins>|(?:# AGENTS\.md instructions[^\n]*\n\s*)?<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>|<environment_context>[\s\S]*?<\/environment_context>)\s*/i;
+  for (let index = 0; index < 8; index++) {
+    const match = leadingContext.exec(visible);
+    if (!match) break;
+    visible = visible.slice(match[0].length).trimStart();
+  }
+  if (/^# Files mentioned by the user:/i.test(visible)) {
+    const request = /^#{0,6}\s*My request:\s*\n([\s\S]*)/im.exec(visible);
+    if (request?.[1]) visible = request[1].trimStart();
+  }
+  return visible
+    .split("\n")
+    .find((line) => line.trim().length > 0)
+    ?.trim()
+    .slice(0, 100);
+}
+
 /** Keep visible user and assistant text while ignoring tools, reasoning, and malformed records. */
 export function parseAgentSessionTranscript(
   input: AgentSessionTranscriptMetadata & {
@@ -310,6 +333,7 @@ function parseAgentSessionRecords(
   let firstUserMessage:
     | (AgentSessionThreadMessage & { readonly codexResponseUser: boolean })
     | undefined;
+  let firstSubstantiveTitle: string | undefined;
   // A Codex response item can include generated setup text beside the real
   // prompt. Suppress response-user records only when the shared turn ID and a
   // verbatim event copy prove which prompt the user submitted.
@@ -371,6 +395,9 @@ function parseAgentSessionRecords(
   ) => {
     if (firstUserMessage === undefined && message.role === "user") {
       firstUserMessage = message;
+    }
+    if (firstSubstantiveTitle === undefined && message.role === "user") {
+      firstSubstantiveTitle = importedUserTitle(message.text);
     }
     messages.push(message);
     if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
@@ -486,13 +513,19 @@ function parseAgentSessionRecords(
   const visibleMessages = messages.map(
     ({ codexResponseUser: _codexResponseUser, ...message }) => message,
   );
-  if (providerSessionId.trim().length === 0 || firstUserMessage === undefined) return null;
+  if (
+    providerSessionId.trim().length === 0 ||
+    firstUserMessage === undefined ||
+    (input.source === "codex" && firstSubstantiveTitle === undefined)
+  ) {
+    return null;
+  }
   const firstUserMessageRetained = messages.includes(firstUserMessage);
   const { codexResponseUser: _codexResponseUser, ...visibleFirstUserMessage } = firstUserMessage;
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
-  const derivedTitle = visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
+  const derivedTitle = firstSubstantiveTitle;
 
   return {
     source: input.source,

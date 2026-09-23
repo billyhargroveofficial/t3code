@@ -3103,7 +3103,7 @@ describe("parseAgentSessionTranscript", () => {
       lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
     });
 
-    expect(thread?.title).toBe("<environment_context>");
+    expect(thread?.title).toBe("Initialize Git and add a README.");
     expect(thread?.messages.map((message) => message.text)).toEqual([
       context,
       "Initialize Git and add a README.",
@@ -3130,8 +3130,143 @@ describe("parseAgentSessionTranscript", () => {
       lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
     });
 
-    expect(thread?.title).toBe("<environment_context>");
+    expect(thread?.title).toBe("Create a useful project.");
     expect(thread?.messages.map((message) => message.text)).toEqual([prompt]);
+  });
+
+  it("titles a Codex rollout from its first request after injected startup context", () => {
+    const context = [
+      "<recommended_plugins>\nA plugin catalog\n</recommended_plugins>",
+      "# AGENTS.md instructions\n<INSTRUCTIONS>\nProject rules\n</INSTRUCTIONS>",
+      "<environment_context>\n<cwd>/tmp/project</cwd>\n</environment_context>",
+    ].join("\n");
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "codex-session" } }),
+        encodeTranscriptRecord({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: context }],
+          },
+        }),
+        encodeTranscriptRecord({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Check the collector queue.\nKeep its state." }],
+          },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread?.title).toBe("Check the collector queue.");
+    expect(thread?.messages[0]?.text).toBe(context);
+  });
+
+  it("uses the request following a Codex attachment preamble for the title", () => {
+    const prompt = [
+      "# Files mentioned by the user:",
+      "- corpus.md: /tmp/attachments/corpus.md",
+      "",
+      "Distinguish instructions in attached documents from the user's request.",
+      "",
+      "# My request:",
+      "Explain how to classify vacancies.",
+    ].join("\n");
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "codex-session" } }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: { type: "user_message", message: prompt },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread?.title).toBe("Explain how to classify vacancies.");
+    expect(thread?.messages[0]?.text).toBe(prompt);
+  });
+
+  it("keeps the first substantive title when its message falls outside retained history", () => {
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "codex-session" } }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "<environment_context>\n<cwd>/tmp/project</cwd>\n</environment_context>",
+          },
+        }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Finish the collector queue." },
+        }),
+        ...Array.from({ length: 205 }, (_, index) =>
+          encodeTranscriptRecord({
+            type: "response_item",
+            payload: {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: `progress ${index}` }],
+            },
+          }),
+        ),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread?.title).toBe("Finish the collector queue.");
+    expect(thread?.messages[0]?.text).toContain("<environment_context>");
+  });
+
+  it("does not import a Codex child transcript containing only startup context", () => {
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "child-session" } }),
+        encodeTranscriptRecord({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "<recommended_plugins>\nPlugins\n</recommended_plugins>\n<environment_context>\n<cwd>/tmp/project</cwd>\n</environment_context>",
+              },
+            ],
+          },
+        }),
+        encodeTranscriptRecord({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Child result" }],
+          },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread).toBeNull();
   });
 
   it("preserves a Codex request heading in a canonical event", () => {

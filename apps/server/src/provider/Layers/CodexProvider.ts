@@ -32,6 +32,7 @@ import {
 } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { sharedCodexAppServerCommand } from "./sharedCodexAppServer.ts";
 import {
   AUTH_PROBE_TIMEOUT_MS,
   buildServerProvider,
@@ -354,10 +355,10 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
 }
 
 /**
- * Spawns a short-lived `codex app-server`, runs the initialize handshake, and
- * hands the caller a connected client. Scoped: the process is killed when
- * the caller's scope closes. Shared by the status probe, the skills probe,
- * and account-level requests such as reset-credit redemption.
+ * Starts a short-lived app-server transport, runs the initialize handshake,
+ * and hands the caller a connected client. In shared mode this transport is a
+ * bridge to the existing daemon. The child transport closes with the caller's
+ * scope. Shared by status, skills, and account-level probes.
  */
 export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(function* (input: {
   readonly binaryPath: string;
@@ -372,15 +373,18 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
   // Expand here for parity with `CodexTextGeneration`/`CodexSessionRuntime`.
   const resolvedHomePath = input.homePath ? expandHomePath(input.homePath) : undefined;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const environment = {
+  const environment: NodeJS.ProcessEnv = {
     ...input.environment,
     ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
   };
-  const spawnCommand = yield* resolveSpawnCommand(
-    input.binaryPath,
-    codexAppServerArgs(input.launchArgs),
-    { env: environment, extendEnv: true },
-  );
+  const sharedAppServer = sharedCodexAppServerCommand();
+  if (sharedAppServer) environment.CODEX_APP_SERVER_URL = sharedAppServer.endpoint;
+  const spawnCommand =
+    sharedAppServer ??
+    (yield* resolveSpawnCommand(input.binaryPath, codexAppServerArgs(input.launchArgs), {
+      env: environment,
+      extendEnv: true,
+    }));
   const child = yield* spawner
     .spawn(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
@@ -395,7 +399,9 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
       Effect.mapError(
         (cause) =>
           new CodexErrors.CodexAppServerSpawnError({
-            command: `${input.binaryPath} app-server`,
+            command: sharedAppServer
+              ? `${sharedAppServer.command} ${sharedAppServer.args.join(" ")}`
+              : `${input.binaryPath} app-server`,
             cause,
           }),
       ),

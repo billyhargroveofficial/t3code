@@ -38,6 +38,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
+import { sharedCodexAppServerCommand } from "./sharedCodexAppServer.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexDeveloperInstructions,
@@ -1314,16 +1315,20 @@ export const makeCodexSessionRuntime = (
     // `child_process.spawn`; `expandHomePath` lets a configured
     // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
     const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
+    const sharedAppServer = sharedCodexAppServerCommand();
     const env = {
       ...options.environment,
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
+      ...(sharedAppServer ? { CODEX_APP_SERVER_URL: sharedAppServer.endpoint } : {}),
     };
     const extendEnv = options.environment === undefined;
     const appServerArgs = codexSessionAppServerArgs(options.appServerArgs, options.launchArgs);
-    const spawnCommand = yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
-      env,
-      extendEnv,
-    });
+    const spawnCommand =
+      sharedAppServer ??
+      (yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
+        env,
+        extendEnv,
+      }));
     const child = yield* spawner
       .spawn(
         ChildProcess.make(spawnCommand.command, spawnCommand.args, {
@@ -1339,7 +1344,9 @@ export const makeCodexSessionRuntime = (
         Effect.mapError(
           (cause) =>
             new CodexErrors.CodexAppServerSpawnError({
-              command: `${options.binaryPath} app-server`,
+              command: sharedAppServer
+                ? `${sharedAppServer.command} ${sharedAppServer.args.join(" ")}`
+                : `${options.binaryPath} app-server`,
               cause,
             }),
         ),
@@ -2501,7 +2508,7 @@ export const makeCodexSessionRuntime = (
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;
-          if (hasConfiguredMcpServer(options.appServerArgs)) {
+          if (!sharedAppServer && hasConfiguredMcpServer(options.appServerArgs)) {
             yield* client.request("config/mcpServer/reload", undefined).pipe(
               Effect.catch((cause) =>
                 Effect.logWarning("Failed to refresh Codex MCP tool catalog before turn.", {
@@ -2526,7 +2533,7 @@ export const makeCodexSessionRuntime = (
             // setting, so the prompt describes the tools this turn actually
             // has even if the setting changed after the session started.
             browserToolsAvailable: configuredMcpToolAvailability(
-              options.appServerArgs,
+              sharedAppServer ? undefined : options.appServerArgs,
               options.mcpCapabilities,
             ),
           });

@@ -1130,11 +1130,11 @@ function ImportStep({
     if (importedProjectsCount < selection.length) {
       if (importedThreadCount > 0 && skippedThreadCount > 0) {
         setImportError(
-          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`,
+          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Skipped ${skippedThreadCount} transcripts without importable conversation history.`,
         );
       } else if (skippedThreadCount > 0) {
         setImportError(
-          `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`,
+          `Skipped ${skippedThreadCount} transcripts without importable conversation history.`,
         );
       } else if (importedThreadCount > 0) {
         setImportError(
@@ -1257,7 +1257,7 @@ function ImportStep({
           disabled={isImporting}
           onClick={importError ? finishAfterImport : () => void onDone()}
         >
-          {importError ? "Continue without the rest" : "Do not import projects"}
+          {importError ? "Continue with imported threads" : "Do not import projects"}
         </Button>
         <Button
           autoFocus

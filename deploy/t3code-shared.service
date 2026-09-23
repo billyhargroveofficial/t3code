@@ -1,0 +1,19 @@
+[Unit]
+Description=T3 Code web client attached to Billy's shared Codex App Server
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/billy/t3code-shared
+Environment=T3CODE_CODEX_APP_SERVER_URL=unix:///home/billy/.codex/app-server-control/app-server-control.sock
+ExecStart=/usr/bin/node /home/billy/t3code-shared/apps/server/dist/bin.mjs serve --host 127.0.0.1 --port 8214 --base-dir /home/billy/.local/share/t3code-shared --no-browser
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

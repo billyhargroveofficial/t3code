@@ -10,8 +10,9 @@
  * Each call to `create()` captures the `codexConfig` argument in closures
  * owned by the returned instance. Two instances created with different
  * `homePath`s (e.g. `codex_personal` + `codex_work`) therefore run with
- * fully independent Codex app-server processes and `CODEX_HOME`
- * environments — no shared mutable state.
+ * independent `CODEX_HOME` environments. By default they spawn independent
+ * app-server processes; the shared-app-server mode attaches through a bridge
+ * to the configured endpoint instead.
  *
  * Resource lifecycle: `create()` runs in a scope handed in by the registry.
  * Closing that scope releases the adapter's child processes, the managed
