@@ -10,11 +10,17 @@ requests. A request already in flight at the instant of a disconnect is not
 replayed because its outcome might be unknown.
 
 The browser connects to T3's persistent server, so closing or reconnecting a
-browser tab does not terminate T3's running sessions. T3 imports existing
-Codex transcripts for browsing and can resume their Codex thread IDs when a
-new turn is sent from T3. Imported history is a snapshot: **turns started in
-Codex Desktop or a terminal are not continuously mirrored into T3**. The
-shared daemon and its existing Desktop/CLI clients remain running separately.
+browser tab does not terminate T3's running sessions. A second client
+connection to the same Codex App Server lists Codex threads, creates matching
+T3 projects from their working directories, and synchronizes visible user and
+assistant text by stable Codex item ID. It checks active threads every two
+seconds and refreshes the complete list every 30 seconds; thread notifications
+prompt an earlier refresh. T3 keeps each Codex thread ID as a resume cursor,
+so a turn sent from T3 continues that Codex conversation. The initial view of
+each thread includes its latest 200 text messages; tool output, images and
+older text remain in Codex's own history. The shared daemon and its existing
+Desktop/CLI clients remain running separately. If a browser socket drops, the
+sidebar can load from the authenticated HTTP snapshot while it reconnects.
 
 ## Local service
 

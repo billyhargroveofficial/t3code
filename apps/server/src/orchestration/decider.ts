@@ -2053,6 +2053,59 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return events;
     }
 
+    case "thread.history.sync": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.deletedAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' was deleted.`,
+        });
+      }
+      for (const message of command.messages) {
+        if (!message.messageId.startsWith("import:codex:")) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Message '${message.messageId}' is outside the Codex mirror namespace.`,
+          });
+        }
+        const existing = thread.messages.find((entry) => entry.id === message.messageId);
+        if (existing && existing.role !== message.role) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Message '${message.messageId}' changed role.`,
+          });
+        }
+      }
+      const events: Array<PlannedOrchestrationEvent> = [];
+      for (const message of command.messages) {
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.observedAt,
+            commandId: command.commandId,
+            metadata: { historyImport: true },
+          })),
+          type: "thread.message-sent",
+          payload: {
+            threadId: command.threadId,
+            messageId: message.messageId,
+            role: message.role,
+            text: message.text,
+            turnId: null,
+            streaming: false,
+            createdAt: message.createdAt,
+            updatedAt: command.observedAt,
+          },
+        });
+      }
+      return events;
+    }
+
     case "thread.proposed-plan.upsert": {
       yield* requireThread({
         readModel,

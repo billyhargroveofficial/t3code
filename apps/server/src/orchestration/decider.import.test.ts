@@ -174,6 +174,56 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
     }),
   );
 
+  it.effect("updates a mirrored Codex item without duplicating its message", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-09-23T10:00:00.000Z";
+      const threadId = ThreadId.make("import:codex:session-1");
+      let model = yield* projectEvent(createEmptyReadModel(createdAt), {
+        sequence: 1,
+        eventId: EventId.make("event-mirror-thread-created"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.created",
+        occurredAt: createdAt,
+        commandId: CommandId.make("command-mirror-thread-created"),
+        causationEventId: null,
+        correlationId: CommandId.make("command-mirror-thread-created"),
+        metadata: { historyImport: true },
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-1"),
+          title: "Mirrored thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6-sol" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      const messageId = MessageId.make("import:codex:session-1:item:user-1");
+      for (const [index, text] of ["Working", "Working together"].entries()) {
+        const events = yield* decideOrchestrationCommand({
+          readModel: model,
+          command: {
+            type: "thread.history.sync",
+            commandId: CommandId.make(`command-mirror-${index}`),
+            threadId,
+            observedAt: `2026-09-23T10:00:0${index}.000Z`,
+            messages: [{ messageId, role: "assistant", text, createdAt }],
+          },
+        });
+        for (const event of Array.isArray(events) ? events : [events]) {
+          model = yield* projectEvent(model, { ...event, sequence: index + 2 });
+        }
+      }
+      expect(model.threads[0]?.messages).toMatchObject([
+        { id: messageId, role: "assistant", text: "Working together" },
+      ]);
+    }),
+  );
+
   it.effect("allows a thread with a newly imported user message to be settled", () =>
     Effect.gen(function* () {
       const createdAt = "2026-08-24T10:00:00.000Z";

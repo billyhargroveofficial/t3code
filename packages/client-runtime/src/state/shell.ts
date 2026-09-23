@@ -185,6 +185,46 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     }
   });
 
+  // A fresh browser has no cached shell. Fetch it as soon as HTTP auth is
+  // prepared, even if the WebSocket cannot stay connected long enough to
+  // subscribe. The live stream remains authoritative once it starts.
+  yield* Stream.merge(
+    SubscriptionRef.changes(supervisor.prepared).pipe(Stream.map(() => undefined)),
+    SubscriptionRef.changes(supervisor.session).pipe(Stream.map(() => undefined)),
+  ).pipe(
+    Stream.runForEach(() =>
+      Effect.gen(function* () {
+        const before = yield* SubscriptionRef.get(state);
+        if (Option.isSome(before.snapshot)) return;
+        if (Option.isSome(yield* SubscriptionRef.get(supervisor.session))) return;
+        const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+        if (Option.isNone(prepared)) return;
+        const loaded = yield* snapshotLoader.load(prepared.value);
+        if (Option.isNone(loaded)) return;
+        const snapshot = loaded.value;
+        yield* SubscriptionRef.update(state, (current) => {
+          if (
+            current.status === "live" ||
+            (Option.isSome(current.snapshot) &&
+              current.snapshot.value.snapshotSequence > snapshot.snapshotSequence)
+          ) {
+            return current;
+          }
+          return {
+            snapshot: Option.some(snapshot),
+            status: "cached" as const,
+            error: Option.none(),
+          };
+        });
+        const current = yield* SubscriptionRef.get(state);
+        if (Option.isSome(current.snapshot) && current.snapshot.value === snapshot) {
+          yield* Queue.offer(persistence, snapshot);
+        }
+      }),
+    ),
+    Effect.forkScoped,
+  );
+
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
